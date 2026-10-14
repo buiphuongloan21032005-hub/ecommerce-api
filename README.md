@@ -1,81 +1,109 @@
 # Ecommerce Monolithic API — Prompt 2
 
-REST API thương mại điện tử MVP xây dựng theo kiến trúc Monolithic bằng Node.js, Express, Prisma và PostgreSQL.
+REST API thương mại điện tử MVP xây dựng bằng Node.js, Express, Prisma và PostgreSQL theo kiến trúc Monolithic.
 
-## 1. Công nghệ và chức năng
+## 1. Cấu trúc project Monolithic
 
-- Node.js, Express.js, Prisma ORM 6.19.0 và PostgreSQL 17.
-- Đăng ký, đăng nhập bằng JWT; mật khẩu được băm bằng bcryptjs.
-- Vai trò tài khoản mới: `normal`; seed tạo thêm vai trò `ADMIN`.
-- Hạng mặc định `BASIC` có `score = 10`.
-- Quản lý sản phẩm; tạo đơn hàng nhiều sản phẩm và trừ tồn kho trong transaction.
-- Khi tạo đơn thành công, hệ thống tạo chi tiết đơn và Shipment trạng thái `PENDING` cùng transaction.
-- Health check trả trạng thái kết nối PostgreSQL.
+Toàn bộ chức năng được triển khai trong **một ứng dụng Express** và chạy như một API service. Các module được chia theo trách nhiệm để dễ quản lý; API cùng truy cập PostgreSQL qua Prisma.
 
-## 2. Cấu hình và chạy bằng Docker Compose
+```text
+ecommerce-api/
+├── src/
+│   ├── app.js                  # Khởi tạo Express, middleware, routes, health check
+│   ├── config/prisma.js        # Tạo Prisma Client dùng chung
+│   ├── routes/                 # Khai báo endpoint và middleware bảo vệ
+│   ├── controllers/            # Xử lý request, nghiệp vụ, response
+│   └── middlewares/            # Xác thực JWT và phân quyền
+├── prisma/
+│   ├── schema.prisma           # Khai báo model, quan hệ, datasource
+│   ├── migrations/             # Lịch sử tạo/cập nhật cấu trúc database
+│   └── seed.js                 # Dữ liệu nền: role, membership
+├── scripts/                    # Tiện ích quản trị, ví dụ nâng role ADMIN
+├── Dockerfile                  # Đóng gói ứng dụng API
+├── docker-compose.yml          # Khởi chạy API và PostgreSQL
+├── .env.example                # Mẫu biến môi trường, không chứa secret thật
+└── .gitignore                  # Loại .env, node_modules khỏi Git
+```
 
-Yêu cầu: Docker Desktop đang mở và hoạt động.
+**Cách giải thích khi vấn đáp:** Đây là Monolithic vì các module auth, product, order và shipment nằm trong cùng một ứng dụng Express, cùng được build/chạy như một service. Việc chia `routes`, `controllers`, `middlewares` chỉ giúp mã nguồn có tổ chức; không biến chúng thành các microservice.
 
-Tạo file cấu hình từ mẫu:
+## 2. Prisma ORM trong project
+
+- `prisma/schema.prisma` khai báo PostgreSQL, các model `Role`, `MemberShip`, `User`, `Product`, `Order`, `OrderDetail`, `Shipment` và quan hệ giữa chúng.
+- `OrderDetail` dùng khóa chính ghép `@@id([oid, pid])`, nên một sản phẩm không bị lặp thành nhiều dòng trong cùng một đơn.
+- `prisma/migrations/` chứa SQL migration để tạo các bảng từ schema. Khi chạy Compose, `prisma migrate deploy` áp dụng migration lên PostgreSQL.
+- `src/config/prisma.js` tạo Prisma Client; controllers gọi client để truy vấn database mà không phải tự viết SQL cho các thao tác thông thường.
+- `prisma/seed.js` tạo role `normal`, `ADMIN` và membership `BASIC` với score `10`.
+- `orderController.js` dùng `$transaction`: trừ tồn kho, tạo Order, OrderDetail và Shipment phải cùng thành công; nếu một bước lỗi, transaction rollback.
+
+## 3. `.env`, `.gitignore` và GitHub
+
+`.env` chứa cấu hình thật trên máy, ví dụ mật khẩu PostgreSQL và JWT secret, nên không commit lên GitHub. `.gitignore` loại `.env`, file môi trường khác và `node_modules/` khỏi Git. `.env.example` là mẫu không chứa secret thật và được commit để người khác biết cần khai báo biến nào.
+
+Tạo `.env` từ mẫu:
 
 ```bash
 cp .env.example .env
 ```
 
-Đổi `POSTGRES_PASSWORD` và `JWT_SECRET` trong `.env`. Nếu đổi mật khẩu PostgreSQL, cập nhật cùng mật khẩu trong `DATABASE_URL`.
+Trong `.env`, đổi `POSTGRES_PASSWORD` và `JWT_SECRET`. Nếu đổi mật khẩu, cập nhật mật khẩu trong `DATABASE_URL` cho trùng khớp.
 
-Tạo secret ngẫu nhiên bằng Node.js:
+Có thể tạo JWT secret ngẫu nhiên:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Khởi động các service:
+## 4. Chạy và kiểm tra bằng Docker Compose
+
+Yêu cầu: Docker Desktop đang mở và hoạt động.
 
 ```bash
 docker compose up -d --build
-```
-
-Compose sẽ chờ PostgreSQL khỏe, chạy Prisma migration, seed dữ liệu nền rồi khởi động API.
-
-Kiểm tra container và health check:
-
-```bash
 docker compose ps
 curl -i http://localhost:3001/health
 ```
 
-Kết quả khỏe mạnh là HTTP `200`, `status: healthy`, `database: connected`. API chạy tại `http://localhost:3001`.
+Compose chờ PostgreSQL healthy, chạy Prisma migration, seed dữ liệu nền rồi khởi động API. Health check thành công trả HTTP `200`, `status: healthy`, `database: connected`. Khi PostgreSQL bị dừng, endpoint trả HTTP `503` và `database: disconnected`.
 
-## 3. Kiểm tra PostgreSQL và thêm sản phẩm bằng CLI
+```bash
+docker compose stop postgres
+curl -i http://localhost:3001/health
+docker compose start postgres
+curl -i http://localhost:3001/health
+```
 
-Mở PostgreSQL CLI trong container:
+API chạy tại `http://localhost:3001`.
+
+## 5. Kiểm tra bảng và thêm Product X, Y bằng CLI
+
+Mở psql bên trong container PostgreSQL:
 
 ```bash
 docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
-Trong dấu nhắc `psql`, kiểm tra các bảng:
+Liệt kê các bảng đã được tạo theo schema:
 
 ```sql
 \dt
 ```
 
-Thêm hai sản phẩm thử nghiệm:
+Tạo hai sản phẩm X và Y:
 
 ```sql
 INSERT INTO "Product" ("pname", "price", "quantity")
 VALUES ('Product X', 100000, 20), ('Product Y', 200000, 30);
 ```
 
-Xem sản phẩm và thoát:
+Xem mã sản phẩm để dùng trong Postman:
 
 ```sql
-SELECT * FROM "Product" ORDER BY "pid";
+SELECT "pid", "pname", "price", "quantity" FROM "Product" ORDER BY "pid";
 \q
 ```
 
-## 4. Luồng Postman: đăng ký, đăng nhập và tạo đơn
+## 6. Postman: đăng ký, đăng nhập, token
 
 Đăng ký tài khoản mới:
 
@@ -91,13 +119,21 @@ Body → raw → JSON:
 }
 ```
 
-Đăng ký thành công sẽ gán role `normal` và hạng `BASIC` có score `10`. Đăng nhập tại:
+Response phải hiển thị role `normal`, membership `BASIC`, score `10`. Đăng nhập tại:
 
 `POST http://localhost:3001/api/auth/login`
 
-Dùng cùng `username` và `password`; lấy token trong response. Với API cần đăng nhập, chọn **Authorization → Bearer Token** trong Postman và dán token.
+Dùng cùng username/password. Response đăng nhập trả JWT token.
 
-Tạo đơn tại `POST http://localhost:3001/api/orders`. Body gồm hai mã sản phẩm và số lượng, ví dụ:
+## 7. Postman: kiểm tra token, đặt hàng và Shipment
+
+### Thử khi không có token
+
+Gọi `POST http://localhost:3001/api/orders` với body đặt hàng nhưng chọn Authorization → **No Auth** (hoặc bỏ Bearer token). Kết quả dự kiến: HTTP `401 Unauthorized`.
+
+### Đặt đơn có token
+
+Gọi lại `POST http://localhost:3001/api/orders`, chọn Authorization → **Bearer Token** và dán token vừa nhận. Dùng đúng `pid` của Product X/Y lấy từ CLI:
 
 ```json
 {
@@ -108,17 +144,18 @@ Tạo đơn tại `POST http://localhost:3001/api/orders`. Body gồm hai mã s�
 }
 ```
 
-Dùng `pid` thực tế đang có trong bảng Product. Đơn thành công trả về Order, OrderDetail và Shipment có trạng thái `PENDING`. Xem đơn tại `GET /api/orders` hoặc `GET /api/orders/:oid`.
+Thay `1` và `2` nếu pid thực tế khác. Response thành công phải có Order, hai OrderDetail, thời gian `createat` do database gán theo thời điểm hiện tại và Shipment trạng thái `PENDING`. Xem lại đơn bằng:
 
-## 5. Shipment và phân quyền ADMIN
+- `GET http://localhost:3001/api/orders`
+- `GET http://localhost:3001/api/orders/:oid`
 
-Shipment được tạo tự động khi tạo đơn; không cần gọi `POST /api/shipments` cho đơn mới. Endpoint này chỉ dùng khi cần tạo thủ công cho đơn cũ chưa có Shipment; API từ chối nếu đơn đã có Shipment.
+Hai endpoint này cũng cần token. Shipment được tạo tự động khi tạo đơn, không gọi `POST /api/shipments` thêm lần nữa cho đơn mới.
 
-Để chuyển Shipment sang giao hàng, tài khoản ADMIN gọi:
+### Chuyển Shipment sang đang giao
+
+Endpoint cập nhật Shipment yêu cầu token ADMIN:
 
 `PATCH http://localhost:3001/api/shipments/:shipid/status`
-
-Body:
 
 ```json
 {
@@ -126,23 +163,15 @@ Body:
 }
 ```
 
-Chuyển tiếp trạng thái dùng `DELIVERED`. Các endpoint Shipment yêu cầu token ADMIN.
+Các trạng thái được hỗ trợ là `PENDING → SHIPPING → DELIVERED`.
 
-Để tạo tài khoản ADMIN, đăng ký tài khoản trước, sau đó chạy:
-
-```bash
-docker compose exec api node scripts/promote-admin.js student01
-```
-
-Đăng nhập lại tài khoản đó để lấy token mới có quyền ADMIN.
-
-## 6. Kiểm tra dữ liệu đơn hàng bằng CLI
+## 8. Kiểm tra dữ liệu sau đặt hàng bằng CLI
 
 ```bash
 docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
-Trong `psql`, kiểm tra Order, OrderDetail, Product và Shipment:
+Trong `psql`, kiểm tra Order, OrderDetail, Product (quantity đã giảm) và Shipment:
 
 ```sql
 SELECT * FROM "Order" ORDER BY "oid" DESC;
@@ -152,18 +181,17 @@ SELECT * FROM "Shipment" ORDER BY "shipid" DESC;
 \q
 ```
 
-## 7. Health check khi database dừng
+## 9. Tạo tài khoản ADMIN
+
+Đăng ký tài khoản trước, sau đó chuyển role bằng script:
 
 ```bash
-docker compose stop postgres
-curl -i http://localhost:3001/health
-docker compose start postgres
-curl -i http://localhost:3001/health
+docker compose exec api node scripts/promote-admin.js student01
 ```
 
-Khi database dừng, health endpoint trả HTTP `503` và `database: disconnected`; sau khi PostgreSQL chạy lại, endpoint trả HTTP `200` và `database: connected`.
+Đăng nhập lại để nhận token mới có role ADMIN.
 
-## 8. Lệnh vận hành thường dùng
+## 10. Lệnh vận hành thường dùng
 
 ```bash
 docker compose logs --tail=100 api
@@ -172,10 +200,9 @@ docker compose up -d
 docker compose up -d --build api
 ```
 
-Dữ liệu PostgreSQL được lưu trong volume `postgres_data`. Tránh `docker compose down -v` nếu muốn giữ dữ liệu.
+PostgreSQL lưu dữ liệu trong volume `postgres_data`. Tránh `docker compose down -v` nếu muốn giữ dữ liệu.
 
-## 9. Cấu hình database
+## 11. Database URL
 
-- API chạy trực tiếp trên máy: dùng `localhost:5433` trong `DATABASE_URL`.
-- API chạy trong Compose: container API kết nối `postgres:5432`; Compose tự thiết lập URL nội bộ.
-- `.env` chứa cấu hình thật và đã được Git bỏ qua. `.env.example` chỉ chứa giá trị mẫu, không chứa mật khẩu thật.
+- API chạy trực tiếp trên máy: `localhost:5433` trong `DATABASE_URL`.
+- API chạy trong Docker Compose: API kết nối PostgreSQL tại `postgres:5432`; Compose tạo URL nội bộ từ các biến PostgreSQL trong `.env`.
