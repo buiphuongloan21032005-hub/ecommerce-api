@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('../scripts/check-env');
 
 const express = require('express');
 const prisma = require('./config/prisma');
@@ -49,6 +49,18 @@ app.use((req, res) => {
     res.status(404).json({
         message: 'Route not found'
     });
+});
+
+// JSON lỗi phải trả JSON 400 thay vì trang lỗi HTML.
+app.use((error, req, res, next) => {
+    if (error.type === 'entity.parse.failed') {
+        return res.status(400).json({ message: 'Invalid JSON body' });
+    }
+    if (error.type === 'entity.too.large') {
+        return res.status(413).json({ message: 'Request body too large' });
+    }
+    console.error('Request failed:', error.message);
+    return res.status(500).json({ message: 'Internal server error' });
 });
 
 // Kết nối database trước khi mở cổng API.

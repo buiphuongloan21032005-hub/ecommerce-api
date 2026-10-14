@@ -43,10 +43,10 @@ ecommerce-api/
 Tạo `.env` từ mẫu:
 
 ```bash
-cp .env.example .env
+node scripts/setup-env.js
 ```
 
-Trong `.env`, đổi `POSTGRES_PASSWORD` và `JWT_SECRET`. Nếu đổi mật khẩu, cập nhật mật khẩu trong `DATABASE_URL` cho trùng khớp.
+Script tạo `.env` với mật khẩu PostgreSQL và JWT secret ngẫu nhiên, đồng bộ `DATABASE_URL`. Nếu `.env` đã tồn tại, script giữ nguyên. `.env.example` chỉ mô tả các biến; không dùng trực tiếp các giá trị trống để chạy. Sau khi database đã được tạo, đổi `.env` không tự đổi mật khẩu hoặc username trong database.
 
 Có thể tạo JWT secret ngẫu nhiên:
 
@@ -59,7 +59,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Yêu cầu: Docker Desktop đang mở và hoạt động.
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --wait
 docker compose ps
 curl -i http://localhost:3001/health
 ```
@@ -189,7 +189,7 @@ SELECT * FROM "Shipment" ORDER BY "shipid" DESC;
 docker compose exec api node scripts/promote-admin.js student01
 ```
 
-Đăng nhập lại để nhận token mới có role ADMIN.
+Token chứa uid; middleware tra quyền hiện tại trong database. Có thể đăng nhập lại sau khi nâng quyền để kiểm tra response hiển thị ADMIN.
 
 ## 10. Lệnh vận hành thường dùng
 
@@ -200,9 +200,48 @@ docker compose up -d
 docker compose up -d --build api
 ```
 
-PostgreSQL lưu dữ liệu trong volume `postgres_data`. Tránh `docker compose down -v` nếu muốn giữ dữ liệu.
+PostgreSQL lưu dữ liệu trong volume có tên từ `POSTGRES_VOLUME` (mặc định `ecommerce-api_postgres_data`). Tránh `docker compose down -v` nếu muốn giữ dữ liệu.
 
 ## 11. Database URL
 
 - API chạy trực tiếp trên máy: `localhost:5433` trong `DATABASE_URL`.
 - API chạy trong Docker Compose: API kết nối PostgreSQL tại `postgres:5432`; Compose tạo URL nội bộ từ các biến PostgreSQL trong `.env`.
+
+## 12. Sửa lỗi P1000 / role postgres không tồn tại (trường hợp của bản cũ)
+
+Đây là volume đã khởi tạo bằng user/mật khẩu khác. Bản cũ dùng `pg_isready`, chỉ kiểm tra server sẵn sàng. Bản sửa dùng `psql SELECT 1` qua TCP với user/password thực để healthcheck xác nhận kết nối database.
+
+**Nếu cần tiếp tục dùng dữ liệu cũ:** khôi phục đúng username/password/database ban đầu vào `.env`, đồng bộ `DATABASE_URL`, chạy `docker compose up -d`. Không đổi volume.
+
+**Nếu muốn một database sạch để chấm bài, vẫn giữ volume cũ:** dùng các file của bản sửa rồi chạy tại thư mục project:
+
+```bash
+docker compose down
+node scripts/setup-env.js --fresh-db
+docker compose up -d --build --wait
+docker compose ps
+docker compose exec api npx prisma migrate status
+curl -i http://localhost:3001/health
+```
+
+`--fresh-db` sao lưu `.env` cũ thành `.env.backup.<mã>`, tạo credentials mới và tên volume mới. Tài khoản/sản phẩm/đơn cũ không xuất hiện trong DB mới. Volume cũ không bị xóa; muốn quay lại cần cả cấu hình đúng của DB cũ và tên volume cũ. Không chạy lại `--fresh-db` mỗi lần mở bài.
+
+Lần sau chỉ cần `docker compose up -d --wait`. Nếu không chạy được, dùng `docker compose ps -a` và `docker compose logs --tail=100 api`.
+
+## 13. Kiểm tra tự động bổ sung
+
+```bash
+docker compose exec api npm run test:smoke
+```
+
+Test tạo một tài khoản, hai sản phẩm và một đơn riêng để kiểm tra: health, role normal/score 10, login, thiếu token 401, tạo đơn X=2/Y=5, Shipment PENDING, quyền xem đơn, tồn kho, rollback khi thiếu hàng. Dữ liệu test được giữ để kiểm tra bằng SQL. Mỗi lần chạy tạo dữ liệu riêng; đây là kiểm tra bổ sung, vẫn trình bày 8 mục CLI/Postman phía trên với giảng viên.
+
+## 14. Cập nhật bản sửa trên Mac
+
+Giữ thư mục repo `~/Documents/ecommerce-api` và `.git` hiện có. Giải nén ZIP vào một thư mục riêng, chép các file của thư mục `ecommerce-api` trong ZIP vào repo (ghi đè file mã nguồn, không xóa repo). Bản ZIP không chứa `.env`, `.git`, node_modules hay dữ liệu database.
+
+Thực hiện mục 12 nếu đang gặp lỗi database cũ. `.dockerignore` ngăn `.env`, bản sao cấu hình và `.git` đi vào Docker image. Nếu cổng 3001 bận, dừng phiên `npm run dev` đang chạy trước khi bật Compose.
+
+## 15. Phạm vi kiểm chứng bản sửa
+
+Xem `KIEM_TRA_BAN_SUA.md` để biết các kiểm tra đã thực hiện và những bước cần chạy trên Docker Desktop của bạn. Chạy được hệ thống chưa tự động chứng minh đạt toàn bộ phiếu chấm; đối chiếu kết quả của từng mục với phiếu chính thức.

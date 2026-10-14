@@ -3,17 +3,17 @@ services:
     image: postgres:17-alpine
     container_name: ecommerce-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Run node scripts/setup-env.js first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run node scripts/setup-env.js first}
+      POSTGRES_DB: ${POSTGRES_DB:?Run node scripts/setup-env.js first}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+        - PGPASSWORD="$$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc 'SELECT 1' >/dev/null
       interval: 5s
       timeout: 5s
       retries: 10
@@ -28,8 +28,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:?Run node scripts/setup-env.js first}:${POSTGRES_PASSWORD:?Run node scripts/setup-env.js first}@postgres:5432/${POSTGRES_DB:?Run node scripts/setup-env.js first}?schema=public"
+      JWT_SECRET: ${JWT_SECRET:?Run node scripts/setup-env.js first}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
     ports:
       - "127.0.0.1:3001:3001"
@@ -39,7 +39,7 @@ services:
     command:
       - sh
       - -c
-      - npx prisma migrate deploy && node prisma/seed.js && exec node src/app.js
+      - sh scripts/start-container.sh
     healthcheck:
       test:
         - CMD
