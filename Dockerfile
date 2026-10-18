@@ -9,7 +9,7 @@ RUN apt-get update \
 COPY package*.json ./
 COPY prisma ./prisma
 
-RUN npm ci
+RUN npm ci --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=60000
 
 RUN npx prisma generate
 

@@ -1,4 +1,6 @@
 const prisma = require('../config/prisma');
+const { calculateDiscount } = require('../config/discount');
+const { Prisma } = require('@prisma/client');
 
 function isPositiveInt(value) {
     return Number.isInteger(value) &&
@@ -96,9 +98,22 @@ exports.createOrder = async (req, res) => {
                 });
             }
 
+            const membership = await tx.memberShip.findUnique({
+                where: { mid: req.user.mid }
+            });
+            if (!membership) {
+                throw businessError(409, 'Membership unavailable');
+            }
+            const subtotal = details.reduce(
+                (sum, item) => sum.plus(item.unit_price.mul(item.qty)),
+                new Prisma.Decimal(0)
+            );
+            const discount = calculateDiscount(subtotal, membership.score);
+
             return tx.order.create({
                 data: {
                     uid: req.user.uid,
+                    discount,
                     orderDetails: {
                         create: details
                     },

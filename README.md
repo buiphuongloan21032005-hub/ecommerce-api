@@ -144,7 +144,7 @@ Gọi lại `POST http://localhost:3001/api/orders`, chọn Authorization → **
 }
 ```
 
-Thay `1` và `2` nếu pid thực tế khác. Response thành công phải có Order, hai OrderDetail, thời gian `createat` do database gán theo thời điểm hiện tại và Shipment trạng thái `PENDING`. Xem lại đơn bằng:
+Thay `1` và `2` nếu pid thực tế khác. Response thành công phải có Order (gồm discount là số tiền giảm), hai OrderDetail, thời gian `createat` do database gán theo thời điểm hiện tại và Shipment trạng thái `PENDING`. Xem lại đơn bằng:
 
 - `GET http://localhost:3001/api/orders`
 - `GET http://localhost:3001/api/orders/:oid`
@@ -245,3 +245,38 @@ Thực hiện mục 12 nếu đang gặp lỗi database cũ. `.dockerignore` ng�
 ## 15. Phạm vi kiểm chứng bản sửa
 
 Xem `KIEM_TRA_BAN_SUA.md` để biết các kiểm tra đã thực hiện và những bước cần chạy trên Docker Desktop của bạn. Chạy được hệ thống chưa tự động chứng minh đạt toàn bộ phiếu chấm; đối chiếu kết quả của từng mục với phiếu chính thức.
+
+## 16. Bổ sung discount theo ERD
+
+Order.discount là số tiền giảm của đơn, kiểu Decimal(10,2), mặc định 0. createat vẫn được giữ theo phiếu chấm. Migration mới chỉ thêm cột, giữ các đơn cũ với discount = 0; không sửa migration đã áp dụng.
+
+Tài liệu không quy định ngưỡng score hay tỷ lệ. DISCOUNT_POLICY mặc định [] nghĩa là chưa áp dụng giảm giá. Có thể thêm vào .env chính sách theo yêu cầu đã thống nhất. Ví dụ minh họa, KHÔNG phải quy tắc do thầy cung cấp:
+
+```dotenv
+DISCOUNT_POLICY='[{"minScore":10,"percent":10},{"minScore":50,"percent":15}]'
+```
+
+Chọn ngưỡng cao nhất mà score đạt được. Theo ví dụ: score 10 giảm 10%; score 50 giảm 15%. Tổng X(100000) × 2 + Y(200000) × 5 = 1200000; score 10 có discount 120000 nếu bật ví dụ, còn mặc định là 0. Phần trăm không lưu vào cột discount.
+
+Server đọc score từ database, giá từ Product; client không tự chỉ định discount hay đơn giá. Tính tiền bằng Prisma.Decimal, làm tròn hai chữ số thập phân. Discount được lưu trong cùng transaction với tồn kho, đơn, chi tiết và Shipment.
+
+Sau khi chép mã bổ sung vào project đang có:
+
+```bash
+node scripts/setup-env.js
+docker compose up -d --build --wait
+docker compose exec api npx prisma migrate status
+docker compose exec api npm test
+docker compose exec api npm run test:smoke
+```
+
+Script setup giữ nguyên .env hiện có. Không cần tạo DB mới để thêm discount. Nếu đổi DISCOUNT_POLICY trong .env, chạy docker compose up -d api để tạo lại container với cấu hình mới.
+
+Trong psql kiểm tra:
+
+```sql
+\d "Order"
+SELECT "oid", "uid", "createat", "discount" FROM "Order" ORDER BY "oid" DESC;
+```
+
+Bản ZIP này chỉ chứa mã nguồn và tài liệu; giữ .git và .env hiện có khi cập nhật. Hướng dẫn đầy đủ cho 8 mục nằm trong THI_PROMPT2.md.

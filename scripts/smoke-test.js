@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const prisma = require('../src/config/prisma');
+const { calculateDiscount } = require('../src/config/discount');
 const base = 'http://127.0.0.1:' + (process.env.PORT || '3001');
 
 async function request(route, method = 'GET', body, token) {
@@ -34,6 +35,9 @@ async function main() {
     const result = await request('/api/orders', 'POST', payload, token);
     assert.equal(result.status, 201);
     const order = result.body.order;
+    assert.equal(order.discount, calculateDiscount('1200000', 10).toString());
+    const savedOrder = await prisma.order.findUnique({ where: { oid: order.oid } });
+    assert.equal(savedOrder.discount.toString(), order.discount);
     assert.equal(order.orderDetails.length, 2);
     assert.equal(order.shipments.length, 1);
     assert.equal(order.shipments[0].status, 'PENDING');

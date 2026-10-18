@@ -31,6 +31,7 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER:?Run node scripts/setup-env.js first}:${POSTGRES_PASSWORD:?Run node scripts/setup-env.js first}@postgres:5432/${POSTGRES_DB:?Run node scripts/setup-env.js first}?schema=public"
       JWT_SECRET: ${JWT_SECRET:?Run node scripts/setup-env.js first}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      DISCOUNT_POLICY: ${DISCOUNT_POLICY:-[]}
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:
@@ -53,3 +54,4 @@ services:
 
 volumes:
   postgres_data:
+    name: ${POSTGRES_VOLUME:?POSTGRES_VOLUME is required}

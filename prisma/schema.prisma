@@ -47,6 +47,7 @@ model Product {
 model Order {
   oid      Int      @id @default(autoincrement())
   uid      Int
+  discount Decimal  @default(0) @db.Decimal(10, 2)
   createat DateTime @default(now()) @db.Timestamp(3)
 
   user         User          @relation(fields: [uid], references: [uid])

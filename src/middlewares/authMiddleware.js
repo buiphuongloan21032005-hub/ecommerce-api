@@ -50,6 +50,7 @@ exports.authenticate = async (req, res, next) => {
             where: { uid: payload.uid },
             select: {
                 uid: true,
+                mid: true,
                 username: true,
                 fullname: true,
                 role: {
